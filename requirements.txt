@@ -1,0 +1,24 @@
+# Core Web Framework
+fastapi==0.110.0
+uvicorn==0.29.0
+
+# PDF processing
+pymupdf==1.23.20
+pytesseract==0.3.10
+Pillow==10.3.0
+
+# Embedding and language model
+sentence-transformers==2.6.1
+transformers==4.40.1
+torch==2.2.2
+openai==1.30.1
+
+# ChromaDB for Vector Storage
+chromadb==0.4.24
+
+# Environment variable and progress
+python-dotenv==1.0.1
+tqdm==4.66.4
+
+# Utility
+uuid
