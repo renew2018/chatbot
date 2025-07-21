@@ -22,3 +22,5 @@ tqdm==4.66.4
 
 # Utility
 uuid
+pydantic==1.10.13
+
