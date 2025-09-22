@@ -921,6 +921,10 @@ nav.top-nav a.active {
   cursor: col-resize !important;
 }
 
+.critical-highlight {
+  color: red;
+  font-weight: bold;
+}
 .hero,
 #login-container,
 #dashboard-container,
@@ -1024,9 +1028,19 @@ nav.top-nav a.active {
 </div>
 
     <!-- Pipe Sizer -->
-    <div class="tool-card" onclick="openTool('pipe')">
-      <p>AI Pipe Sizer</p>
-    </div>
+     <div class="tool-card" onclick="openTool('pipe')">
+      <img src="pipe size.jpg" alt="AI pipe sizing" 
+       class="card-img" 
+       style="  width: 300px;
+      height: 195px;
+      margin-left: auto;
+      margin-right: auto;
+      display: block;
+      transform: scale(0.93) translateY(1px) translateX(1px);
+      transform-origin: center;
+      object-fit: cover;
+      border-radius: 25px;">
+</div>
 
     <!-- Placeholder tools -->
     <div class="tool-card" onclick="openTool('mep')">
@@ -1516,26 +1530,15 @@ const fittingNumberMap = {
   "Coil 5 PD": 49,
   "Miscl 1 PD": 50,
   "Miscl 2 PD": 51,
-  "Miscl 3 PD": 52
+  "Miscl 3 PD": 52,
 };
 
-// Design Constants
-const DEFAULT_VELOCITY = 5.0; // m/s
-const DEFAULT_PRESSURE_DROP = 0.5; // Pa/m
-const AIR_DENSITY = 1.2; // kg/m³
-const AIR_VISCOSITY = 1.81e-5; // Pa·s
-const DUCT_ROUGHNESS = 0.00015; // m (galvanized steel)
-const DEFAULT_ASPECT_RATIO = 2.5; // width/height for rectangular ducts
-const DUCT_TYPE_RECTANGULAR = 2;
-
-// Global variables
 let rows = [createEmptyRow(1)];
 let mergeMode = false;
-let deleteMode = false; // NEW: Delete mode
+let deleteMode = false;
 let selectedMergeRows = [];
-let selectedDeleteRows = []; // NEW: Track rows for deletion
+let selectedDeleteRows = [];
 let originalRowsBackup = null;
-
 // Column resizing variables
 let isResizing = false;
 let currentResizeColumn = null;
@@ -1549,13 +1552,13 @@ function createEmptyRow(index) {
     "Type fitting": "",
     "Fitting no": "",
     "Flow rate, m3/hr": "",
-    "Length, M/No": "",
-    "Nom. dia, mm": "",
-    "Duct height, mm": "",
+    "Length, M/No": 10.0,
+    "Nom. dia, mm": 400,
+    "Duct height, mm": 150,
     "Duct width, mm": "",
     "Eq dia, mm": "",
     "Aspect ratio": "",
-    "Roughness in duct": DUCT_ROUGHNESS * 1000,
+    "Roughness in duct": "",
     "Reynolds number in duct": "",
     "Duct friction co-eff": "",
     "Fitting K factor PDCF": "",
@@ -1570,186 +1573,23 @@ function createEmptyRow(index) {
   };
 }
 
-// AUTO-CALCULATION ENGINE (unchanged)
-function calculateDuctSizing(flowRate_m3hr, fittingType = "Straight duct", userDiameter = null, userHeight = null, isManualEdit = false) {
-  if (!flowRate_m3hr || flowRate_m3hr <= 0) return {};
-  
-  const flowRate_m3s = flowRate_m3hr / 3600;
-  
-  let targetVelocity = DEFAULT_VELOCITY;
-  let targetPressureDrop = DEFAULT_PRESSURE_DROP;
-  let width_mm, height_mm, nomDiameter_mm;
-  
-  if (userHeight && userHeight > 0 && userDiameter && userDiameter > 0) {
-    height_mm = userHeight;
-    nomDiameter_mm = userDiameter;
-    const area_m2 = (nomDiameter_mm * height_mm) / 1000000;
-    width_mm = Math.round((nomDiameter_mm * nomDiameter_mm) / height_mm);
-    targetVelocity = flowRate_m3s / area_m2;
-  } else if (userHeight && userHeight > 0) {
-    height_mm = userHeight;
-    const height_m = height_mm / 1000;
-    const requiredArea_m2 = flowRate_m3s / targetVelocity;
-    const width_m = requiredArea_m2 / height_m;
-    width_mm = Math.round(width_m * 1000);
-    nomDiameter_mm = Math.round(Math.sqrt(width_mm * height_mm));
-  } else if (userDiameter && userDiameter > 0) {
-    nomDiameter_mm = userDiameter;
-    const area_m2 = Math.PI * Math.pow(nomDiameter_mm / 2000, 2);
-    height_mm = Math.round(Math.sqrt(area_m2 * 1000000 / DEFAULT_ASPECT_RATIO));
-    width_mm = Math.round(height_mm * DEFAULT_ASPECT_RATIO);
-  } else {
-    const requiredArea_m2 = flowRate_m3s / targetVelocity;
-    height_mm = Math.round(Math.sqrt(requiredArea_m2 * 1000000 / DEFAULT_ASPECT_RATIO));
-    width_mm = Math.round(height_mm * DEFAULT_ASPECT_RATIO);
-    nomDiameter_mm = Math.round(Math.sqrt(width_mm * height_mm));
-  }
-  
-  height_mm = Math.max(100, height_mm);
-  width_mm = Math.max(150, width_mm);
-  
-  const hydraulicDiameter_m = (2 * width_mm * height_mm) / (width_mm + height_mm) / 1000;
-  const actualArea_m2 = (width_mm * height_mm) / 1000000;
-  const actualVelocity_ms = flowRate_m3s / actualArea_m2;
-  
-  const eqDiameter_m = Math.sqrt(4 * actualArea_m2 / Math.PI);
-  const eqDiameter_mm = Math.round(eqDiameter_m * 1000);
-  
-  const reynolds = (AIR_DENSITY * actualVelocity_ms * hydraulicDiameter_m) / AIR_VISCOSITY;
-  
-  const relativeRoughness = DUCT_ROUGHNESS / hydraulicDiameter_m;
-  let frictionFactor;
-  
-  if (reynolds > 4000) {
-    const a = Math.pow(relativeRoughness / 3.7, 1.11);
-    const b = Math.pow(6.9 / reynolds, 0.9);
-    frictionFactor = Math.pow(-2 * Math.log10(a + b), -2);
-  } else {
-    frictionFactor = 64 / reynolds;
-  }
-  
-  const dynamicPressure = 0.5 * AIR_DENSITY * Math.pow(actualVelocity_ms, 2);
-  const frictionPressureDrop_Pam = frictionFactor * (AIR_DENSITY * Math.pow(actualVelocity_ms, 2)) / (2 * hydraulicDiameter_m);
-  
-  let kFactor = 0;
-  switch (fittingType) {
-    case "Straight duct": kFactor = 0; break;
-    case "90 deg elbow": kFactor = 0.75; break;
-    case "45 deg elbow": kFactor = 0.35; break;
-    case "Y joint (L) CFM ratio 0.1": kFactor = 0.15; break;
-    case "Y joint (L) CFM ratio 0.2": kFactor = 0.25; break;
-    case "Reducer, lower size": kFactor = 0.1; break;
-    case "Diverging, Higher size": kFactor = 0.2; break;
-    default: kFactor = 0.1;
-  }
-  
-  const fittingPressureLoss = kFactor * dynamicPressure;
-  
-  let length_m;
-  if (fittingType === "Straight duct") {
-    length_m = 10;
-  } else {
-    const equivalentLength = fittingPressureLoss / Math.max(frictionPressureDrop_Pam, 0.1);
-    length_m = Math.max(1, Math.round(equivalentLength));
-  }
-  
-  const totalPressureDrop = (frictionPressureDrop_Pam * length_m) + fittingPressureLoss;
-  const aspectRatio = width_mm / height_mm;
-  const isCritical = totalPressureDrop > 1.0 || actualVelocity_ms > 6.0 ? "c" : "";
-  
-  return {
-    "Length, M/No": length_m,
-    "Nom. dia, mm": nomDiameter_mm,
-    "Duct height, mm": height_mm,
-    "Duct width, mm": width_mm,
-    "Eq dia, mm": eqDiameter_mm,
-    "Aspect ratio": Math.round(aspectRatio * 100) / 100,
-    "Roughness in duct": Math.round(DUCT_ROUGHNESS * 1000000) / 1000,
-    "Reynolds number in duct": Math.round(reynolds),
-    "Duct friction co-eff": Math.round(frictionFactor * 10000) / 10000,
-    "Fitting K factor PDCF": Math.round(kFactor * 1000) / 1000,
-    "Face velocity, m/s": Math.round(actualVelocity_ms * 100) / 100,
-    "Pressure drop, Pa/m": Math.round(frictionPressureDrop_Pam * 1000) / 1000,
-    "Pressure drop, Pa": Math.round(totalPressureDrop * 1000) / 1000,
-    "Mark critical path c": isCritical
-  };
-}
-
-// Column Resizing Functions (unchanged)
-function initColumnResize() {
-  const table = document.querySelector('.data-table');
-  if (!table) return;
-  
-  const headers = table.querySelectorAll('th');
-  headers.forEach((header, index) => {
-    if (index < headers.length - 1) {
-      header.style.position = 'relative';
-      header.addEventListener('mousedown', handleMouseDown);
-    }
-  });
-  
-  document.addEventListener('mousemove', handleMouseMove);
-  document.addEventListener('mouseup', handleMouseUp);
-}
-
-function handleMouseDown(e) {
-  const rect = e.target.getBoundingClientRect();
-  const rightEdge = rect.right;
-  
-  if (e.clientX >= rightEdge - 6) {
-    isResizing = true;
-    currentResizeColumn = e.target;
-    startX = e.clientX;
-    startWidth = parseInt(window.getComputedStyle(currentResizeColumn).width);
-    
-    currentResizeColumn.classList.add('resizing');
-    document.querySelector('.data-table').classList.add('resizing');
-    
-    e.preventDefault();
-    e.stopPropagation();
+async function calculateRowsBackend(inputRows) {
+  try {
+    const response = await fetch("/api/duct/calculate_ducts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(inputRows)
+    });
+    if (!response.ok) throw new Error("Calculation API error");
+    const data = await response.json();
+    return data;
+  } catch (e) {
+    console.error(e);
+    alert("Failed to calculate duct sizing. Please try again.");
+    return null;
   }
 }
 
-function handleMouseMove(e) {
-  if (!isResizing || !currentResizeColumn) return;
-  
-  const diff = e.clientX - startX;
-  const newWidth = Math.max(startWidth + diff, 50);
-  
-  const headers = Array.from(currentResizeColumn.parentNode.children);
-  const columnIndex = headers.indexOf(currentResizeColumn);
-  
-  currentResizeColumn.style.width = newWidth + 'px';
-  
-  const table = document.querySelector('.data-table');
-  const rows = table.querySelectorAll('tbody tr');
-  rows.forEach(row => {
-    const cell = row.children[columnIndex];
-    if (cell) {
-      cell.style.width = newWidth + 'px';
-    }
-  });
-  
-  e.preventDefault();
-}
-
-function handleMouseUp(e) {
-  if (isResizing) {
-    isResizing = false;
-    
-    if (currentResizeColumn) {
-      currentResizeColumn.classList.remove('resizing');
-      currentResizeColumn = null;
-    }
-    
-    const table = document.querySelector('.data-table');
-    if (table) {
-      table.classList.remove('resizing');
-    }
-  }
-}
-
-// UPDATE FIELD FUNCTIONS (unchanged)
 async function updateField(i, field, value) {
   if (!rows[i] || (rows[i].merged && field !== 'Tag name')) return;
 
@@ -1764,65 +1604,50 @@ async function updateField(i, field, value) {
 
   rows[i][field] = value;
 
-  if (field === 'Flow rate, m3/hr' && value !== '') {
-    const fittingType = rows[i]["Type fitting"] || "Straight duct";
-    const userDiameter = rows[i]["Nom. dia, mm"] || null;
-    const userHeight = rows[i]["Duct height, mm"] || null;
-    
-    const calculations = calculateDuctSizing(value, fittingType, userDiameter, userHeight, rows[i].isManualEdit);
-    
-    Object.keys(calculations).forEach(key => {
-      if (!(rows[i].isManualEdit && (key === 'Nom. dia, mm' || key === 'Duct height, mm'))) {
-        rows[i][key] = calculations[key];
-      }
-    });
-    
-    if (!rows[i]["Type fitting"] || rows[i]["Type fitting"].trim() === '') {
-      rows[i]["Type fitting"] = "Straight duct";
-      rows[i]["Fitting no"] = fittingNumberMap["Straight duct"];
+  if (field === 'Type fitting') {
+    rows[i]["Fitting no"] = fittingNumberMap[value] || 1;
+  }
+
+  if (rows[i]["Flow rate, m3/hr"] !== '' && rows[i]["Flow rate, m3/hr"] !== null && !isNaN(rows[i]["Flow rate, m3/hr"])) {
+    const inputRow = {
+      "Tag name": rows[i]["Tag name"] || "",
+      "Type fitting": rows[i]["Type fitting"] || "Straight duct",
+      "Flow rate, m3/hr": rows[i]["Flow rate, m3/hr"],
+      "Length, M/No": rows[i]["Length, M/No"] || 10,
+      "Nom. dia, mm": rows[i]["Nom. dia, mm"] || 400,
+      "Duct height, mm": rows[i]["Duct height, mm"] || 150,
+      "Duct type": 2
+    };
+    const result = await calculateRowsBackend([inputRow]);
+    if (result && result.length === 1) {
+      const updated = result[0];
+      if (!rows[i].isManualEdit || field !== 'Nom. dia, mm') rows[i]["Nom. dia, mm"] = updated["Nom. dia, mm"];
+      if (!rows[i].isManualEdit || field !== 'Duct height, mm') rows[i]["Duct height, mm"] = updated["Duct height, mm"];
+
+      rows[i]["Length, M/No"] = updated["Length, M/No"];
+      rows[i]["Duct width, mm"] = updated["Duct width, mm"];
+      rows[i]["Eq dia, mm"] = updated["Eq dia, mm"];
+      rows[i]["Aspect ratio"] = updated["Aspect ratio"];
+      rows[i]["Roughness in duct"] = updated["Roughness in duct"];
+      rows[i]["Reynolds number in duct"] = updated["Reynolds number in duct"];
+      rows[i]["Duct friction co-eff"] = updated["Duct friction co-eff"];
+      rows[i]["Fitting K factor PDCF"] = updated["Fitting K factor PDCF"];
+      rows[i]["Face velocity, m/s"] = updated["Face velocity, m/s"];
+      rows[i]["Pressure drop, Pa/m"] = updated["Pressure drop, Pa/m"];
+      rows[i]["Pressure drop, Pa"] = updated["Pressure drop, Pa"];
+      rows[i]["Mark critical path c"] = updated["Mark critical path c"];
     }
-  }
-  
-  if (field === 'Type fitting' && rows[i]["Flow rate, m3/hr"]) {
-    const flowRate = rows[i]["Flow rate, m3/hr"];
-    const userDiameter = rows[i]["Nom. dia, mm"] || null;
-    const userHeight = rows[i]["Duct height, mm"] || null;
-    
-    const calculations = calculateDuctSizing(flowRate, value, userDiameter, userHeight, rows[i].isManualEdit);
-    
-    Object.keys(calculations).forEach(key => {
-      if (!(rows[i].isManualEdit && (key === 'Nom. dia, mm' || key === 'Duct height, mm'))) {
-        rows[i][key] = calculations[key];
-      }
-    });
-  }
-  
-  if ((field === 'Nom. dia, mm' || field === 'Duct height, mm') && rows[i]["Flow rate, m3/hr"]) {
-    const flowRate = rows[i]["Flow rate, m3/hr"];
-    const fittingType = rows[i]["Type fitting"] || "Straight duct";
-    const userDiameter = rows[i]["Nom. dia, mm"];
-    const userHeight = rows[i]["Duct height, mm"];
-    
-    const calculations = calculateDuctSizing(flowRate, fittingType, userDiameter, userHeight, true);
-    
-    Object.keys(calculations).forEach(key => {
-      if (key !== 'Nom. dia, mm' && key !== 'Duct height, mm') {
-        rows[i][key] = calculations[key];
-      }
-    });
   }
 
   renderTable();
 
   if (i === rows.length - 1) {
     let shouldAddRow = false;
-    
     if ((field === 'Tag name' && value && value.trim() !== '') ||
         (field === 'Flow rate, m3/hr' && value !== '') ||
         (field === 'Type fitting' && value !== '')) {
       shouldAddRow = true;
     }
-    
     if (shouldAddRow) {
       rows.push(createEmptyRow(rows.length + 1));
       setTimeout(() => renderTable(), 50);
@@ -1830,36 +1655,82 @@ async function updateField(i, field, value) {
   }
 }
 
-async function updateRow(i, field, value) {
-  if (!rows[i] || (rows[i].merged && field !== 'Tag name')) return;
-  if (field === 'Type fitting') {
-    rows[i]["Fitting no"] = fittingNumberMap[value] || 1;
+async function performMergeRows() {
+  if (selectedMergeRows.length < 2) return;
+
+  let rowsToMerge = selectedMergeRows.map(idx => {
+    const r = rows[idx];
+    return {
+      "Tag name": r["Tag name"],
+      "Type fitting": r["Type fitting"] || "Straight duct",
+      "Flow rate, m3/hr": parseFloat(r["Flow rate, m3/hr"]) || 0,
+      "Length, M/No": parseFloat(r["Length, M/No"]) || 10,
+      "Nom. dia, mm": parseFloat(r["Nom. dia, mm"]) || 400,
+      "Duct height, mm": parseFloat(r["Duct height, mm"]) || 150,
+      "Duct type": 2
+    };
+  });
+
+  try {
+    const response = await fetch("/api/duct/merge_rows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rowsToMerge)
+    });
+
+    if (!response.ok) throw new Error("Merge failed");
+    const mergedRow = await response.json();
+
+    rows.push({
+      "Sl. No": rows.length + 1,
+      "Tag name": mergedRow["Tag name"],
+      "Type fitting": mergedRow["Type fitting"],
+      "Fitting no": fittingNumberMap[mergedRow["Type fitting"]] || 1,
+      "Flow rate, m3/hr": mergedRow["Flow rate, m3/hr"],
+      "Length, M/No": mergedRow["Length, M/No"],
+      "Nom. dia, mm": mergedRow["Nom. dia, mm"],
+      "Duct height, mm": mergedRow["Duct height, mm"],
+      "Duct width, mm": mergedRow["Duct width, mm"],
+      "Eq dia, mm": mergedRow["Eq dia, mm"],
+      "Aspect ratio": mergedRow["Aspect ratio"],
+      "Roughness in duct": mergedRow["Roughness in duct"],
+      "Reynolds number in duct": mergedRow["Reynolds number in duct"],
+      "Duct friction co-eff": mergedRow["Duct friction co-eff"],
+      "Fitting K factor PDCF": mergedRow["Fitting K factor PDCF"],
+      "Face velocity, m/s": mergedRow["Face velocity, m/s"],
+      "Pressure drop, Pa/m": mergedRow["Pressure drop, Pa/m"],
+      "Pressure drop, Pa": mergedRow["Pressure drop, Pa"],
+      "Mark critical path c": mergedRow["Mark critical path c"],
+      merged: true,
+      mergedFrom: [...selectedMergeRows]
+    });
+
+    selectedMergeRows = [];
+    toggleMerge();
+    renderTable();
+
+  } catch (err) {
+    console.error(err);
+    alert("Failed to merge rows.");
   }
-  await updateField(i, field, value);
 }
 
-function addNewRow() {
-  rows.push(createEmptyRow(rows.length + 1));
-  renderTable();
-}
-
-// ENHANCED MERGE MODE (unchanged but no success messages)
 function toggleMerge() {
   const button = document.getElementById('toggleMergeBtn');
   const deleteButton = document.getElementById('toggleDeleteBtn');
-  
+
   if (!mergeMode) {
     // Disable delete mode if active
     if (deleteMode) {
       toggleDelete();
     }
-    
+
     originalRowsBackup = JSON.parse(JSON.stringify(rows));
     mergeMode = true;
     selectedMergeRows = [];
     button.textContent = "Disable Merge";
     button.style.background = "#dc3545";
-    
+
     const infoText = document.createElement('p');
     infoText.id = 'merge-info';
     infoText.style.textAlign = 'center';
@@ -1875,6 +1746,7 @@ function toggleMerge() {
         row["Sl. No"] = index + 1;
         row.merged = false;
         row.mergedFrom = null;
+        row.isManualEdit = false;
       });
       originalRowsBackup = null;
     }
@@ -1882,125 +1754,29 @@ function toggleMerge() {
     selectedMergeRows = [];
     button.textContent = "Enable Merge";
     button.style.background = "#17a2b8";
-    
+
     const infoText = document.getElementById('merge-info');
     if (infoText) infoText.remove();
   }
   renderTable();
 }
 
-function onSelectMergeRow(checkbox) {
-  const idx = parseInt(checkbox.dataset.index, 10);
-  if (checkbox.checked) {
-    if (!selectedMergeRows.includes(idx)) selectedMergeRows.push(idx);
-  } else {
-    selectedMergeRows = selectedMergeRows.filter(i => i !== idx);
-  }
-  
-  if (selectedMergeRows.length >= 2) {
-    setTimeout(() => performMergeRows(), 100);
-  }
-}
-
-// ENHANCED MERGE FUNCTION (no success messages)
-function performMergeRows() {
-  if (selectedMergeRows.length < 2) return;
-  
-  selectedMergeRows.sort((a, b) => a - b);
-  
-  const selectedRows = selectedMergeRows.map(idx => rows[idx]);
-  const validRows = selectedRows.filter(row => 
-    row["Tag name"] && row["Tag name"].trim() !== "" && !row.merged
-  );
-  
-  if (validRows.length === 0) {
-    selectedMergeRows = [];
-    return;
-  }
-  
-  const mergedTagName = validRows.map(row => row["Tag name"]).join(" + ");
-  
-  const mergedValues = {
-    "Tag name": mergedTagName,
-    "Type fitting": validRows[0]["Type fitting"] || "Straight duct",
-    "Fitting no": validRows[0]["Fitting no"] || 1,
-    merged: true,
-    mergedFrom: [...selectedMergeRows],
-    isManualEdit: false
-  };
-  
-  const additiveFields = ["Flow rate, m3/hr", "Length, M/No", "Pressure drop, Pa"];
-  additiveFields.forEach(field => {
-    const sum = validRows.reduce((total, row) => total + (parseFloat(row[field]) || 0), 0);
-    mergedValues[field] = Math.round(sum * 100) / 100;
-  });
-  
-  const derivedFields = ["Face velocity, m/s", "Reynolds number in duct", "Aspect ratio", 
-                        "Duct friction co-eff", "Fitting K factor PDCF", "Pressure drop, Pa/m"];
-  const totalFlow = mergedValues["Flow rate, m3/hr"];
-  
-  if (totalFlow > 0) {
-    derivedFields.forEach(field => {
-      const weightedSum = validRows.reduce((total, row) => {
-        const flowWeight = (parseFloat(row["Flow rate, m3/hr"]) || 0) / totalFlow;
-        return total + ((parseFloat(row[field]) || 0) * flowWeight);
-      }, 0);
-      mergedValues[field] = Math.round(weightedSum * 1000) / 1000;
-    });
-  }
-  
-  const dimensionFields = ["Nom. dia, mm", "Duct height, mm", "Duct width, mm", "Eq dia, mm"];
-  dimensionFields.forEach(field => {
-    const maxValue = Math.max(...validRows.map(row => parseFloat(row[field]) || 0));
-    mergedValues[field] = maxValue;
-  });
-  
-  const otherFields = ["Roughness in duct", "Mark critical path c"];
-  otherFields.forEach(field => {
-    mergedValues[field] = validRows[0][field] || "";
-  });
-  
-  if (mergedValues["Flow rate, m3/hr"] > 0) {
-    const calculations = calculateDuctSizing(
-      mergedValues["Flow rate, m3/hr"], 
-      mergedValues["Type fitting"]
-    );
-    Object.assign(mergedValues, calculations);
-    mergedValues.merged = true;
-    mergedValues.mergedFrom = [...selectedMergeRows];
-  }
-  
-  const newRowIndex = rows.length;
-  const mergedRow = createEmptyRow(newRowIndex + 1);
-  Object.assign(mergedRow, mergedValues);
-  
-  rows.push(mergedRow);
-  
-  rows.forEach((row, i) => {
-    row["Sl. No"] = i + 1;
-  });
-  
-  selectedMergeRows = [];
-  renderTable();
-}
-
-// NEW: DELETE ROWS MODE
 function toggleDelete() {
   const button = document.getElementById('toggleDeleteBtn');
   const mergeButton = document.getElementById('toggleMergeBtn');
-  
+
   if (!deleteMode) {
     // Disable merge mode if active
     if (mergeMode) {
       toggleMerge();
     }
-    
+
     deleteMode = true;
     selectedDeleteRows = [];
     button.textContent = "Delete Selected";
     button.style.background = "#dc3545";
     button.disabled = true; // Disable until rows are selected
-    
+
     const infoText = document.createElement('p');
     infoText.id = 'delete-info';
     infoText.style.textAlign = 'center';
@@ -2015,11 +1791,24 @@ function toggleDelete() {
     button.textContent = "Delete Rows";
     button.style.background = "#6c757d";
     button.disabled = false;
-    
+
     const infoText = document.getElementById('delete-info');
     if (infoText) infoText.remove();
   }
   renderTable();
+}
+
+function onSelectMergeRow(checkbox) {
+  const idx = parseInt(checkbox.dataset.index, 10);
+  if (checkbox.checked) {
+    if (!selectedMergeRows.includes(idx)) selectedMergeRows.push(idx);
+  } else {
+    selectedMergeRows = selectedMergeRows.filter(i => i !== idx);
+  }
+
+  if (selectedMergeRows.length >= 2) {
+    setTimeout(() => performMergeRows(), 100);
+  }
 }
 
 function onSelectDeleteRow(checkbox) {
@@ -2029,7 +1818,7 @@ function onSelectDeleteRow(checkbox) {
   } else {
     selectedDeleteRows = selectedDeleteRows.filter(i => i !== idx);
   }
-  
+
   // Enable/disable delete button based on selection
   const deleteButton = document.getElementById('toggleDeleteBtn');
   if (selectedDeleteRows.length > 0) {
@@ -2045,236 +1834,240 @@ function onSelectDeleteRow(checkbox) {
 
 function performDeleteRows() {
   if (selectedDeleteRows.length === 0) return;
-  
+
   const rowNumbers = selectedDeleteRows.map(i => i + 1).join(', ');
   if (!confirm(`Are you sure you want to delete rows: ${rowNumbers}?`)) {
     return;
   }
-  
+
   // Sort in descending order to avoid index issues
   selectedDeleteRows.sort((a, b) => b - a);
-  
+
   // Remove selected rows
   selectedDeleteRows.forEach(idx => {
     rows.splice(idx, 1);
   });
-  
+
   // Ensure at least one row remains
   if (rows.length === 0) {
     rows = [createEmptyRow(1)];
   }
-  
+
   // Renumber remaining rows
   rows.forEach((row, i) => {
     row["Sl. No"] = i + 1;
   });
-  
+
   // Exit delete mode
   toggleDelete();
 }
 
-// FILE UPLOAD WITH DEFAULT CALCULATION MODE (unchanged)
+// Other existing functions (like uploadFile, downloadExcel, downloadPdf, backToDashboard, initColumnResize, handleMouseDown, etc.)
 async function uploadFile() {
-  const fileInput = document.getElementById('fileUpload');
-  if (!fileInput.files.length) {
-    alert("Please select a file to upload.");
-    return;
-  }
-  
-  const file = fileInput.files[0];
-  const formData = new FormData();
-  formData.append('file', file);
+  const fileInput = document.getElementById('fileUpload');
+  if (!fileInput.files.length) {
+    alert("Please select a file to upload.");
+    return;
+  }
+  
+  const file = fileInput.files[0];
+  const formData = new FormData();
+  formData.append('file', file);
 
-  try {
-    const response = await fetch('/api/duct/upload_file', {
-      method: 'POST',
-      body: formData
-    });
-    const result = await response.json();
+  try {
+    const response = await fetch('/api/duct/upload_file', {
+      method: 'POST',
+      body: formData
+    });
+    const result = await response.json();
 
-    if (result.error) {
-      alert('Upload error: ' + result.error);
-      return;
-    }
-    
-    if (result.results && Array.isArray(result.results)) {
-      rows = result.results.map((row, idx) => ({
-        ...createEmptyRow(idx + 1),
-        ...row,
-        "Sl. No": idx + 1,
-        isManualEdit: false
-      }));
-      
-      if (rows.length === 0) rows = [createEmptyRow(1)];
-      
-      for (let i = 0; i < rows.length; i++) {
-        if (rows[i]["Flow rate, m3/hr"]) {
-          const fittingType = rows[i]["Type fitting"] || "Straight duct";
-          const calculations = calculateDuctSizing(
-            rows[i]["Flow rate, m3/hr"], 
-            fittingType, 
-            null,
-            null, 
-            false
-          );
-          
-          Object.keys(calculations).forEach(key => {
-            rows[i][key] = calculations[key];
-          });
-          
-          if (!rows[i]["Type fitting"] || rows[i]["Type fitting"].trim() === '') {
-            rows[i]["Type fitting"] = "Straight duct";
-            rows[i]["Fitting no"] = fittingNumberMap["Straight duct"];
-          }
-        }
-      }
-      
-      renderTable();
-      alert('File uploaded successfully! Applied defaults.');
-    } else {
-      alert('Upload succeeded but no data parsed.');
-      rows = [createEmptyRow(1)];
-      renderTable();
-    }
-  } catch (err) {
-    console.error('Upload failed:', err);
-    alert('Failed to upload and process file.');
-  }
+
+    if (result.error) {
+      alert('Upload error: ' + result.error);
+      return;
+    }
+    
+    if (result.results && Array.isArray(result.results)) {
+      rows = result.results.map((row, idx) => ({
+        ...createEmptyRow(idx + 1),
+        ...row,
+        "Sl. No": idx + 1,
+        isManualEdit: false
+      }));
+      
+      if (rows.length === 0) rows = [createEmptyRow(1)];
+      
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i]["Flow rate, m3/hr"]) {
+          const fittingType = rows[i]["Type fitting"] || "Straight duct";
+          const calculations = calculateDuctSizing(
+            rows[i]["Flow rate, m3/hr"], 
+            fittingType, 
+            null,
+            null, 
+            false
+          );
+          
+          Object.keys(calculations).forEach(key => {
+            rows[i][key] = calculations[key];
+          });
+          
+          if (!rows[i]["Type fitting"] || rows[i]["Type fitting"].trim() === '') {
+            rows[i]["Type fitting"] = "Straight duct";
+            rows[i]["Fitting no"] = fittingNumberMap["Straight duct"];
+          }
+        }
+      }
+      
+      renderTable();
+      alert('File uploaded successfully! Applied defaults.');
+    } else {
+      alert('Upload succeeded but no data parsed.');
+      rows = [createEmptyRow(1)];
+      renderTable();
+    }
+  } catch (err) {
+    console.error('Upload failed:', err);
+    alert('Failed to upload and process file.');
+  }
 }
 
 // Downloads (unchanged)
 function downloadExcel() {
-  if (typeof XLSX === "undefined") {
-    alert("SheetJS/XLSX library not loaded!");
-    return;
-  }
-  
-  const cleanRows = rows.filter(row => 
-    row["Tag name"] && row["Tag name"].trim() !== "" && 
-    row["Flow rate, m3/hr"] && row["Flow rate, m3/hr"] !== ""
-  );
+  if (typeof XLSX === "undefined") {
+    alert("SheetJS/XLSX library not loaded!");
+    return;
+  }
+  
+  const cleanRows = rows.filter(row => 
+    row["Tag name"] && row["Tag name"].trim() !== "" && 
+    row["Flow rate, m3/hr"] && row["Flow rate, m3/hr"] !== ""
+  );
 
-  const worksheetData = cleanRows.map((row, index) => ({
-    "Sl. No": index + 1,
-    "Tag name": row["Tag name"],
-    "Type fitting": row["Type fitting"],
-    "Fitting no": row["Fitting no"],
-    "Flow rate, m3/hr": row["Flow rate, m3/hr"],
-    "Length, M/No": row["Length, M/No"],
-    "Nom. dia, mm": row["Nom. dia, mm"],
-    "Duct height, mm": row["Duct height, mm"],
-    "Duct width, mm": row["Duct width, mm"],
-    "Eq dia, mm": row["Eq dia, mm"],
-    "Aspect ratio": row["Aspect ratio"],
-    "Roughness in duct": row["Roughness in duct"],
-    "Reynolds number in duct": row["Reynolds number in duct"],
-    "Duct friction co-eff": row["Duct friction co-eff"],
-    "Fitting K factor PDCF": row["Fitting K factor PDCF"],
-    "Face velocity, m/s": row["Face velocity, m/s"],
-    "Pressure drop, Pa/m": row["Pressure drop, Pa/m"],
-    "Pressure drop, Pa": row["Pressure drop, Pa"],
-    "Mark critical path c": row["Mark critical path c"]
-  }));
-  
-  const worksheet = XLSX.utils.json_to_sheet(worksheetData);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'DuctSizing');
-  XLSX.writeFile(workbook, 'duct_sizing_results.xlsx');
+  const worksheetData = cleanRows.map((row, index) => ({
+    "Sl. No": index + 1,
+    "Tag name": row["Tag name"],
+    "Type fitting": row["Type fitting"],
+    "Fitting no": row["Fitting no"],
+    "Flow rate, m3/hr": row["Flow rate, m3/hr"],
+    "Length, M/No": row["Length, M/No"],
+    "Nom. dia, mm": row["Nom. dia, mm"],
+    "Duct height, mm": row["Duct height, mm"],
+    "Duct width, mm": row["Duct width, mm"],
+    "Eq dia, mm": row["Eq dia, mm"],
+    "Aspect ratio": row["Aspect ratio"],
+    "Roughness in duct": row["Roughness in duct"],
+    "Reynolds number in duct": row["Reynolds number in duct"],
+    "Duct friction co-eff": row["Duct friction co-eff"],
+    "Fitting K factor PDCF": row["Fitting K factor PDCF"],
+    "Face velocity, m/s": row["Face velocity, m/s"],
+    "Pressure drop, Pa/m": row["Pressure drop, Pa/m"],
+    "Pressure drop, Pa": row["Pressure drop, Pa"],
+    "Mark critical path c": row["Mark critical path c"]
+  }));
+  
+  const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'DuctSizing');
+  XLSX.writeFile(workbook, 'duct_sizing_results.xlsx');
 }
 
 function downloadPdf() {
-  if (typeof window.jspdf === "undefined") {
-    alert("jsPDF library not loaded!");
-    return;
-  }
-  
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF('l', 'mm', 'a4');
-  
-  const cleanRows = rows.filter(row => 
-    row["Tag name"] && row["Tag name"].trim() !== "" && 
-    row["Flow rate, m3/hr"] && row["Flow rate, m3/hr"] !== ""
-  );
+  if (typeof window.jspdf === "undefined") {
+    alert("jsPDF library not loaded!");
+    return;
+  }
+  
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('l', 'mm', 'a4');
+  
+  const cleanRows = rows.filter(row => 
+    row["Tag name"] && row["Tag name"].trim() !== "" && 
+    row["Flow rate, m3/hr"] && row["Flow rate, m3/hr"] !== ""
+  );
 
-  const columns = [
-    "Sl. No", "Tag name", "Type fitting", "Flow rate, m3/hr", "Length, M/No",
-    "Nom. dia, mm", "Duct height, mm", "Duct width, mm", "Face velocity, m/s",
-    "Pressure drop, Pa/m", "Pressure drop, Pa"
-  ];
-  
-  const rowsData = cleanRows.map((r, index) => [
-    index + 1, r["Tag name"], r["Type fitting"], r["Flow rate, m3/hr"], r["Length, M/No"],
-    r["Nom. dia, mm"], r["Duct height, mm"], r["Duct width, mm"], r["Face velocity, m/s"],
-    r["Pressure drop, Pa/m"], r["Pressure drop, Pa"]
-  ]);
+  const columns = [
+    "Sl. No", "Tag name", "Type fitting", "Flow rate, m3/hr", "Length, M/No",
+    "Nom. dia, mm", "Duct height, mm", "Duct width, mm", "Face velocity, m/s",
+    "Pressure drop, Pa/m", "Pressure drop, Pa"
+  ];
+  
+  const rowsData = cleanRows.map((r, index) => [
+    index + 1, r["Tag name"], r["Type fitting"], r["Flow rate, m3/hr"], r["Length, M/No"],
+    r["Nom. dia, mm"], r["Duct height, mm"], r["Duct width, mm"], r["Face velocity, m/s"],
+    r["Pressure drop, Pa/m"], r["Pressure drop, Pa"]
+  ]);
 
-  doc.autoTable({
-    startY: 20,
-    head: [columns],
-    body: rowsData,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: '#eb8108', textColor: '#000000' }
-  });
-  doc.save('duct_sizing_results.pdf');
+  doc.autoTable({
+    startY: 20,
+    head: [columns],
+    body: rowsData,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: '#eb8108', textColor: '#000000' }
+  });
+  doc.save('duct_sizing_results.pdf');
 }
 
 function backToDashboard() {
-  document.getElementById('ductTool').style.display = 'none';
-  if (document.getElementById('app-container')) document.getElementById('app-container').style.display = 'none';
-  if (document.getElementById('dashboard-container')) document.getElementById('dashboard-container').style.display = 'block';
-  const homeBtn = document.querySelector('.home-button');
-  if (homeBtn) homeBtn.style.display = 'none';
+  document.getElementById('ductTool').style.display = 'none';
+  if (document.getElementById('app-container')) document.getElementById('app-container').style.display = 'none';
+  if (document.getElementById('dashboard-container')) document.getElementById('dashboard-container').style.display = 'block';
+  const homeBtn = document.querySelector('.home-button');
+  if (homeBtn) homeBtn.style.display = 'none';
 }
 
-// ENHANCED RENDER TABLE - WITH DELETE CHECKBOXES
+
+const MAX_VELOCITY = 7.62;
+const MAX_PRESSURE_DROP = 0.64;
+
 function renderTable() {
   const tbody = document.getElementById("tableBody");
   if (!tbody) {
     console.error('Table body not found');
     return;
   }
-  
   tbody.innerHTML = "";
-  
+
   rows.forEach((row, i) => {
     const fittingOptionsHtml = Object.keys(fittingNumberMap)
       .map(opt => `<option value="${opt}"${row["Type fitting"] === opt ? ' selected' : ''}>${opt}</option>`)
       .join('');
-    
-    const trClass = row.merged ? 'merged-row' : '';
+    const trClass = row.merged ? "merged-row" : "";
     let slNoCellHtml = `<span>${row["Sl. No"]}</span>`;
-    
-    // Add checkboxes based on mode
+
     if (mergeMode && row["Tag name"] && row["Tag name"].trim() !== "") {
       const checkboxStyle = "margin-left: 5px; transform: scale(1.2);";
       slNoCellHtml += ` <input type="checkbox" class="merge-checkbox" data-index="${i}" ${selectedMergeRows.includes(i) ? "checked" : ""} onchange="onSelectMergeRow(this)" style="${checkboxStyle}" title="Select for merging">`;
     }
-    
+
     if (deleteMode && row["Tag name"] && row["Tag name"].trim() !== "") {
       const checkboxStyle = "margin-left: 5px; transform: scale(1.2); accent-color: #dc3545;";
       slNoCellHtml += ` <input type="checkbox" class="delete-checkbox" data-index="${i}" ${selectedDeleteRows.includes(i) ? "checked" : ""} onchange="onSelectDeleteRow(this)" style="${checkboxStyle}" title="Select for deletion">`;
     }
-    
-    // Show merge info in merged rows
-    let mergeInfo = '';
+
+    let mergeInfo = "";
     if (row.merged && row.mergedFrom) {
-      const sourceRows = row.mergedFrom.map(idx => idx + 1).join(', ');
+      const sourceRows = row.mergedFrom.map(idx => idx + 1).join(", ");
       mergeInfo = ` <small style="color: #28a745; font-weight: bold;">[From: ${sourceRows}]</small>`;
     }
-    
+
     const isReadonly = row.merged;
-    const mergedClass = row.merged ? 'style="background: linear-gradient(135deg, #e8f5e8, #d4edda); font-weight: bold;"' : '';
-    
+    const mergedClass = row.merged ? `style="background: linear-gradient(135deg, #e8f5e8, #d4edda); font-weight: bold;"` : "";
+
+    // Highlight velocity or pressure drop cells if above limits
+    const velocityCritical = parseFloat(row["Face velocity, m/s"]) > MAX_VELOCITY;
+    const pressureCritical = parseFloat(row["Pressure drop, Pa/m"]) > MAX_PRESSURE_DROP;
+
     tbody.insertAdjacentHTML("beforeend", `
       <tr class="${trClass}" ${mergedClass}>
         <td class="sl-no-cell">${slNoCellHtml}${mergeInfo}</td>
-        <td><input type="text" class="editableinput tagname-input" value="${row["Tag name"] || ""}" onchange="updateField(${i}, 'Tag name', this.value)" ${isReadonly ? 'readonly' : ''} placeholder="Enter tag name" /></td>
-        <td><select class="editableinput" onchange="updateRow(${i}, 'Type fitting', this.value)" ${isReadonly ? 'disabled' : ''}><option value="">Select...</option>${fittingOptionsHtml}</select></td>
+        <td><input type="text" class="editableinput tagname-input" value="${row["Tag name"] || ""}" onchange="updateField(${i}, 'Tag name', this.value)" ${isReadonly ? "readonly" : ""} placeholder="Enter tag name" /></td>
+        <td><select class="editableinput" onchange="updateField(${i}, 'Type fitting', this.value)" ${isReadonly ? "disabled" : ""}><option value="">Select...</option>${fittingOptionsHtml}</select></td>
         <td class="auto-calc">${row["Fitting no"] || ""}</td>
-        <td><input type="number" class="editableinput" min="0" step="any" value="${row["Flow rate, m3/hr"] || ""}" onchange="updateField(${i}, 'Flow rate, m3/hr', this.value)" ${isReadonly ? 'readonly' : ''} placeholder="Flow rate" /></td>
-        <td class="auto-calc">${row["Length, M/No"] || ""}</td>
-        <td><input type="number" class="editableinput override-field" min="0" step="25" value="${row["Nom. dia, mm"] || ""}" onchange="updateField(${i}, 'Nom. dia, mm', this.value)" ${isReadonly ? 'readonly' : ''} placeholder="Override" title="Manual override available" /></td>
-        <td><input type="number" class="editableinput override-field" min="0" step="25" value="${row["Duct height, mm"] || ""}" onchange="updateField(${i}, 'Duct height, mm', this.value)" ${isReadonly ? 'readonly' : ''} placeholder="Override" title="Manual override available" /></td>
+        <td><input type="number" class="editableinput" min="0" step="any" value="${row["Flow rate, m3/hr"] || ""}" onchange="updateField(${i}, 'Flow rate, m3/hr', this.value)" ${isReadonly ? "readonly" : ""} placeholder="Flow rate" /></td>
+        <td><input type="number" class="editableinput" min="0" step="0.1" value="${row["Length, M/No"] || 10}" onchange="updateField(${i}, 'Length, M/No', this.value)" ${isReadonly ? "readonly" : ""} /></td>
+        <td><input type="number" class="editableinput override-field" min="0" step="25" value="${row["Nom. dia, mm"] || 400}" onchange="updateField(${i}, 'Nom. dia, mm', this.value)" ${isReadonly ? "readonly" : ""} placeholder="Override" title="Manual override available" /></td>
+        <td><input type="number" class="editableinput override-field" min="0" step="25" value="${row["Duct height, mm"] || 150}" onchange="updateField(${i}, 'Duct height, mm', this.value)" ${isReadonly ? "readonly" : ""} placeholder="Override" title="Manual override available" /></td>
         <td class="auto-calc">${row["Duct width, mm"] || ""}</td>
         <td class="auto-calc">${row["Eq dia, mm"] || ""}</td>
         <td class="auto-calc">${row["Aspect ratio"] || ""}</td>
@@ -2282,8 +2075,8 @@ function renderTable() {
         <td class="auto-calc">${row["Reynolds number in duct"] || ""}</td>
         <td class="auto-calc">${row["Duct friction co-eff"] || ""}</td>
         <td class="auto-calc">${row["Fitting K factor PDCF"] || ""}</td>
-        <td class="target-value">${row["Face velocity, m/s"] || ""}</td>
-        <td class="target-value ${parseFloat(row["Pressure drop, Pa/m"]) > 0.5 ? 'highlight' : ''}">${row["Pressure drop, Pa/m"] || ""}</td>
+        <td class="target-value ${velocityCritical ? "critical-highlight" : ""}">${row["Face velocity, m/s"] || ""}</td>
+        <td class="target-value ${pressureCritical ? "critical-highlight" : ""}">${row["Pressure drop, Pa/m"] || ""}</td>
         <td class="auto-calc">${row["Pressure drop, Pa"] || ""}</td>
         <td class="auto-calc">${row["Mark critical path c"] || ""}</td>
       </tr>
@@ -2306,6 +2099,7 @@ if (document.readyState === 'loading') {
 } else {
   renderTable();
 }
+
 </script>
 </body>
 </html>
